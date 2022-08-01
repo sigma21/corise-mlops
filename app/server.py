@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI
 from pydantic import BaseModel
 from loguru import logger
@@ -15,7 +16,7 @@ GLOBAL_CONFIG = {
         }
     },
     "service": {
-        "log_destination": "../data/logs.out"
+        "log_destination": "../logs/{time}"
     }
 }
 
@@ -32,8 +33,6 @@ class PredictResponse(BaseModel):
 
 
 app = FastAPI()
-classifier = NewsCategoryClassifier(GLOBAL_CONFIG)
-
 
 @app.on_event("startup")
 def startup_event():
@@ -45,8 +44,10 @@ def startup_event():
         Access to the model instance and log file will be needed in /predict endpoint, make sure you
         store them as global variables
     """
+    global classifier
     classifier = NewsCategoryClassifier(GLOBAL_CONFIG)
-    # TODO! log file
+
+    logger.add(GLOBAL_CONFIG['service']['log_destination'], level='DEBUG', rotation='1 day')
     logger.info("Setup completed")
 
 
@@ -59,6 +60,7 @@ def shutdown_event():
         2. Any other cleanups
     """
     logger.info("Shutting down application")
+
 
 
 @app.post("/predict", response_model=PredictResponse)
@@ -78,18 +80,25 @@ def predict(request: PredictRequest):
         }
         3. Construct an instance of `PredictResponse` and return
     """
-    pred = classifier.predict_label(request.description)[0]
-    pred_proba = classifier.predict_proba(request.description)[0]
+    start = time.perf_counter()
 
-    class_names = classifier.pipeline.classes_
-    scores = dict(zip(class_names, pred_proba))
+    # pred = classifier.predict_label(request.description)
+    pred_proba = classifier.predict_proba(request.description)
+    scores_sorted = dict(sorted(pred_proba.items(), key=lambda x: x[1], reverse=True))
 
-    response_model = {
-        "scores": dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)),
-        "label": pred
-    }
+    # label = list(scores_sorted.keys())[0]
+    # label = pred
+    label = max(pred_proba, key=pred_proba.get)
 
-    return response_model
+    end = time.perf_counter()
+    latency = (end-start)*1000
+
+    logger.debug({
+        'request': request,
+        'prediction': PredictResponse(scores=scores_sorted, label=label),
+        'latency': f'{latency:.3f} ms'})
+
+    return PredictResponse(scores=scores_sorted, label=label)
 
 
 @app.get("/")
