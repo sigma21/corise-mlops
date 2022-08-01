@@ -82,12 +82,8 @@ def predict(request: PredictRequest):
     """
     start = time.perf_counter()
 
-    # pred = classifier.predict_label(request.description)
     pred_proba = classifier.predict_proba(request.description)
     scores_sorted = dict(sorted(pred_proba.items(), key=lambda x: x[1], reverse=True))
-
-    # label = list(scores_sorted.keys())[0]
-    # label = pred
     label = max(pred_proba, key=pred_proba.get)
 
     end = time.perf_counter()
